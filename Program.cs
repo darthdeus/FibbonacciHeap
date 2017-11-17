@@ -1,56 +1,9 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 
 namespace Halda {
-    //// TODO: udelat z toho structuru
-    public class DoubleLinkedList {
-        public Node First;
-        public Node Last;
-        public bool IsEmpty => First == null;
-
-        public void Insert(Node node) {
-            if (First == null) {
-                First = node;
-                Last = node;
-            } else {
-                Debug.Assert(Last != null);
-                Debug.Assert(Last.Right == null);
-                Debug.Assert(node.Left == null);
-                Debug.Assert(node.Right == null);
-
-                Last.Right = node;
-                Last = node;
-            }
-        }
-
-        public Node Dequeue() {
-            Debug.Assert(First != null);
-            Debug.Assert(First.Left == null);
-
-            var retval = First;
-
-            First = First.Right;
-            First.Left = null;
-
-            return retval;
-        }
-
-        public void Merge(DoubleLinkedList other) {
-            Debug.Assert(Last != null);
-            Debug.Assert(other.First != null);
-            Debug.Assert(Last.Right == null);
-            Debug.Assert(other.First.Left == null);
-
-            Last.Right = other.First;
-            other.First.Left = Last;
-        }
-    }
-
     [DebuggerDisplay("{Value}")]
     public class Node {
         public int Value;
@@ -84,19 +37,44 @@ namespace Halda {
             y.Right = x;
         }
 
+        public Node MergeBinomTres(Node other) {
+            Debug.Assert(IsRoot);
+            Debug.Assert(other.IsRoot);
+            Debug.Assert(Rank == other.Rank);
+
+            if (Value > other.Value) {
+                other.AddChild(this);
+                Parent = other;
+                return other;
+            } else {
+                AddChild(other);
+                other.Parent = this;
+                return this;
+            }
+        }
+
+        public void AddChild(Node other) {
+            Rank++;
+            if (Children == null) {
+                Children = other;
+            } else {
+                Children.Merge(other);
+            }
+        }
+
         public Node Remove() {
             if (this.Right == this && this.Left == this) {
                 return null;
             }
-
 
             this.Left.Right = Right;
             this.Right.Left = Left;
 
             var ret = Left;
 
-            Left = null;
-            Right = null;
+            // Kazdy prvek je cyklicky seznam
+            Left = this;
+            Right = this;
 
             return ret;
         }
@@ -118,11 +96,13 @@ namespace Halda {
                     if (visited.Contains(node.Value)) continue;
                     visited.Add(node.Value);
 
-                    file.WriteLine($"\"{node.Value}\" [fillcolor = pink, style=filled]");
+                    string color = node.IsRoot ? "lightblue" : "pink";
+
+                    file.WriteLine($"\"{node.Value}\" [fillcolor = {color}, style=filled]");
 
                     if (node.Parent != null) {
                         stack.Push(node.Parent);
-                        file.WriteLine($"{node.Value} -> {node.Parent.Value} [color=\"yellow\"]");
+                        file.WriteLine($"{node.Value} -> {node.Parent.Value} [color=\"green\"]");
                     }
 
                     if (node.Children != null) {
@@ -146,19 +126,6 @@ namespace Halda {
             Process.Start("dot", $"-Tpng -o graph{count}.png graph{count}.dot");
             count++;
         }
-
-        private string DebugString() {
-            var builder = new StringBuilder();
-
-            if (Left != null && Right != null) {
-                builder.Append($"{Left.Value} <-> {Value} <-> {Right.Value}");
-            } else {
-                builder.Append($"{Value}");
-            }
-
-
-            return builder.ToString();
-        }
     }
 
     class FibHeap {
@@ -174,9 +141,13 @@ namespace Halda {
             Debug.Assert(node.Left == node);
             Debug.Assert(node.Right == node);
 
-            _count++;
-            _trees.Merge(node);
+            if (_trees == null) {
+                _trees = node;
+            } else {
+                _trees.Merge(node);
+            }
 
+            _count++;
 
             if (_minNode == null || _minNode.Value > node.Value) {
                 _minNode = node;
@@ -229,8 +200,8 @@ namespace Halda {
             Cut(node);
         }
 
-        private void Consolidate() {
-            var buckets = new Node[(int) Math.Round(Math.Log(_count))];
+        public void Consolidate() {
+            var buckets = new Node[(int) Math.Round(Math.Log(_count)) + 1];
 
             do {
                 var node = _trees;
@@ -241,7 +212,6 @@ namespace Halda {
                 } else {
                     buckets[node.Rank].Merge(node);
                 }
-                
             } while (_trees != null);
 
             for (int i = 0; i < buckets.Length; i++) {
@@ -253,8 +223,13 @@ namespace Halda {
                         var item2 = buckets[i];
                         buckets[i] = buckets[i].Remove();
 
-                        item1.Merge(item2);
-                        buckets[i+1].Merge(item1);
+                        var bigger = item1.MergeBinomTres(item2);
+
+                        if (buckets[i + 1] != null) {
+                            buckets[i + 1].Merge(bigger);
+                        } else {
+                            buckets[i + 1] = bigger;
+                        }
                     } else {
                         if (_trees == null) {
                             _trees = item1;
@@ -266,22 +241,20 @@ namespace Halda {
             }
         }
 
-        private void Cut(Node x) {
+        public void Cut(Node x) {
             while (true) {
                 var o = x.Parent;
 
                 x.Parent = null;
-                x.Left.Right = x.Right;
-                x.Right.Left = x.Left;
-                x.Left = null;
-                x.Right = null;
-                x.Marked = false;
+                if (o.Children == x) {
+                    o.Children = x.Remove();
+                } else {
+                    x.Remove();
+                }
 
                 x.Marked = false;
-                // TODO: todle ceknout
 
-                // TODO: zakomentovano!!!!!!!!!!!!!!!!!
-                //_trees.Insert(x);
+                _trees.Merge(x);
 
                 if (o.Marked) {
                     // TODO: fuj rekurze
@@ -293,12 +266,29 @@ namespace Halda {
                     break;
                 }
             }
-            ;
+        }
+
+        public void PrintDotgraph() {
+            _trees.PrintDotgraph();
         }
     }
 
     class Program {
         static void Main(string[] args) {
+            var heap = new FibHeap();
+
+            heap.Insert(1);
+            heap.Insert(2);
+            heap.Insert(3);
+            heap.Insert(4);
+            heap.Insert(5);
+
+            heap.Consolidate();
+
+            heap.PrintDotgraph();
+        }
+
+        static void Test1() {
             var n1 = new Node(2);
             n1.Merge(new Node(3));
             n1.Merge(new Node(4));
@@ -309,29 +299,24 @@ namespace Halda {
 
             n1.Remove().PrintDotgraph();
             n1.PrintDotgraph();
-
-
-            //n1.Merge(new Node(4));
-
-            //var n2 = new Node(5);
-            //n2.Merge(new Node(6));
-
-            //n1.Merge(n2);
-
-            //n1.PrintDotgraph();
-
-            //n1.Remove().PrintDotgraph();
-            //n1.PrintDotgraph();
         }
-    }
 
-    public static class LinkedListExtensions {
-        public static IEnumerable<LinkedListNode<T>> EnumerateNodes<T>(this LinkedList<T> list) {
-            var node = list.First;
-            while (node != null) {
-                yield return node;
-                node = node.Next;
-            }
+        static void Test2() {
+            var n1 = new Node(2);
+            n1.Merge(new Node(3));
+            n1.Merge(new Node(4));
+            n1.PrintDotgraph();
+
+            var n2 = new Node(5);
+            n2.Merge(new Node(6));
+            n2.PrintDotgraph();
+
+            n1.Merge(n2);
+
+            n1.PrintDotgraph();
+
+            n1.Remove().PrintDotgraph();
+            n1.PrintDotgraph();
         }
     }
 }
