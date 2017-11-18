@@ -1,12 +1,14 @@
 ﻿#define SKIP_PRINT
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 
 namespace Halda {
-    [DebuggerDisplay("{Value}")]
+    [DebuggerDisplay("{Key}[{Value}]")]
     public class Node {
+        public int Key;
         public int Value;
         public int Rank = 0;
         public bool Marked = false;
@@ -17,18 +19,22 @@ namespace Halda {
         public Node Right;
         public Node Left;
 
-        public Node(int value) {
-            Value = value;
+        public bool IsSingletonList => Left == this && Right == this;
+        public string DebugString => $"{Key}[{Value}]";
+
+        public Node(int key, int value) {
+            Key = key;
             Left = this;
             Right = this;
-        }
-
-        public static Node Root(int value) {
-            return new Node(value);
+            Value = value;
         }
 
         public void Merge(Node other) {
-            Debug.Assert(other.Left == other.Right || other.Parent == null);
+            Debug.Assert(other.IsSingletonList || other.Parent == null);
+
+            if (Parent != null) {
+                Debug.Assert(other.IsSingletonList);
+            }
 
             var x = this.Right;
             var y = other.Right;
@@ -39,13 +45,17 @@ namespace Halda {
             x.Left = y;
             y.Right = x;
 
-            // TODO: a co ty ostatni?
-            other.Parent = Parent;
-
-            // TODO: poradne prozkoumat
             if (Parent != null) {
-                Parent.Rank++;
+                other.Parent = Parent;
+            } else {
+                // TODO: vsechny ostatni nody maj parent == null
+                Debug.Assert(other.IsRoot);
             }
+
+            //// TODO: poradne prozkoumat
+            //if (Parent != null) {
+            //    Parent.Rank++;
+            //}
         }
 
         public Node MergeBinomTres(Node other) {
@@ -53,19 +63,27 @@ namespace Halda {
             Debug.Assert(other.IsRoot);
             Debug.Assert(Rank == other.Rank);
 
-            if (Value > other.Value) {
+            int initialRank = Rank;
+
+            if (Key > other.Key) {
                 other.AddChild(this);
-                Parent = other;
+
+                Debug.Assert(other.Rank == initialRank + 1);
                 return other;
             } else {
                 AddChild(other);
-                other.Parent = this;
+
+                Debug.Assert(this.Rank == initialRank + 1);
                 return this;
             }
         }
 
         public void AddChild(Node other) {
+            Debug.Assert(other.Parent == null);
             Rank++;
+
+            other.Parent = this;
+
             if (Children == null) {
                 Children = other;
             } else {
@@ -82,16 +100,14 @@ namespace Halda {
                 Parent.Rank--;
 
                 if (Parent.Children == this) {
-                    if (Right == this) {
-                        Parent.Children = null;
-                    } else {
-                        Parent.Children = Right;
-                    }
+                    Parent.Children = IsSingletonList ? null : Right;
                 }
             }
 
+            Parent = null;
+
             // TODO: zamyslet se
-            if (Right == this && Left == this) {
+            if (IsSingletonList) {
                 return null;
             }
 
@@ -103,7 +119,6 @@ namespace Halda {
             // Kazdy prvek je cyklicky seznam
             Left = this;
             Right = this;
-            Parent = null;
 
             return retval;
         }
@@ -131,25 +146,25 @@ namespace Halda {
 
                     string color = node.IsRoot ? "lightblue" : "pink";
 
-                    file.WriteLine($"\"{node.Value}\" [fillcolor = {color}, style=filled]");
+                    file.WriteLine($"\"{node.DebugString}\" [fillcolor = {color}, style=filled]");
 
                     if (node.Parent != null) {
                         stack.Push(node.Parent);
-                        file.WriteLine($"{node.Value} -> {node.Parent.Value} [color=\"green\"]");
+                        file.WriteLine($"\"{node.DebugString}\" -> \"{node.Parent.DebugString}\" [color=\"green\"]");
                     }
 
                     if (node.Children != null) {
                         stack.Push(node.Children);
-                        file.WriteLine($"{node.Value} -> {node.Children.Value} [color=\"green\"]");
+                        //file.WriteLine($"{node.Key} -> {node.Children.Key} [color=\"green\"]");
                     }
 
                     if (node.Right != null) {
                         stack.Push(node.Right);
-                        file.WriteLine($"{node.Value} -> {node.Right.Value} [color=\"red\"]");
+                        file.WriteLine($"\"{node.DebugString}\" -> \"{node.Right.DebugString}\" [color=\"red\"]");
                     }
                     if (node.Left != null) {
                         stack.Push(node.Left);
-                        file.WriteLine($"{node.Value} -> {node.Left.Value} [color=\"blue\"]");
+                        file.WriteLine($"\"{node.DebugString}\" -> \"{node.Left.DebugString}\" [color=\"blue\"]");
                     }
                 }
 
@@ -166,15 +181,14 @@ namespace Halda {
         private Node _minNode = null;
         private int _count = 0;
 
-        public Node Insert(int value) {
-            var node = Node.Root(value);
+        public Node Insert(int key, int value) {
+            var node = new Node(key, value);
             InsertNode(node);
             return node;
         }
 
         public void InsertNode(Node node) {
-            Debug.Assert(node.Left == node);
-            Debug.Assert(node.Right == node);
+            Debug.Assert(node.IsSingletonList);
 
             if (_trees == null) {
                 _trees = node;
@@ -184,12 +198,14 @@ namespace Halda {
 
             _count++;
 
-            if (_minNode == null || _minNode.Value > node.Value) {
+            if (_minNode == null || _minNode.Key > node.Key) {
                 _minNode = node;
             }
         }
 
         public void Merge(FibHeap other) {
+            Debug.Assert(_trees != null);
+            Debug.Assert(other._trees != null);
             Debug.Assert(_minNode != null);
             Debug.Assert(other._minNode != null);
 
@@ -197,7 +213,7 @@ namespace Halda {
 
             _trees.Merge(other._trees);
 
-            if (other._minNode.Value < _minNode.Value) {
+            if (other._minNode.Key < _minNode.Key) {
                 _minNode = other._minNode;
             }
         }
@@ -207,18 +223,18 @@ namespace Halda {
         }
 
         public int ExtractMin() {
-            var extracted = Min();
-            int retval = extracted.Value;
+            var min = Min();
+            int retval = min.Key;
             _count--;
 
-            _trees = extracted.Remove();
+            _trees = min.Remove();
 
             int iter = 0;
-            while (extracted.Children != null) {
+            while (min.Children != null) {
                 PrintDotgraph($"Extract min {iter++}");
 
-                var child = extracted.Children;
-                extracted.Children = child.Remove();
+                var child = min.Children;
+                min.Children = child.Remove();
 
                 InsertNode(child);
             }
@@ -241,10 +257,15 @@ namespace Halda {
             return retval;
         }
 
-        public void Decrease(Node node, int value) {
-            node.Value = value;
+        public void Decrease(Node node, int key) {
+            node.Key = key;
 
-            if (node.Parent == null || node.Parent.Value < node.Value) return;
+            if (_minNode != null && _minNode.Key > node.Key) {
+                _minNode = node;
+            }
+
+            if (node.Parent == null || node.Parent.Key < node.Key) return;
+
 
             Cut(node);
         }
@@ -276,7 +297,11 @@ namespace Halda {
                         var item2 = buckets[i];
                         buckets[i] = buckets[i].Remove();
 
+                        Debug.Assert(item1.Rank == item2.Rank);
+                        //Console.WriteLine($"First: {item1.Rank}, Second: {item2.Rank}");
+
                         var bigger = item1.MergeBinomTres(item2);
+                        Debug.Assert(bigger.Rank == i + 1);
 
                         if (buckets[i + 1] != null) {
                             buckets[i + 1].Merge(bigger);
@@ -286,7 +311,7 @@ namespace Halda {
                     } else {
                         if (_minNode == null) {
                             _minNode = item1;
-                        } else if (_minNode.Value > item1.Value) {
+                        } else if (_minNode.Key > item1.Key) {
                             _minNode = item1;
                         }
 
@@ -301,27 +326,24 @@ namespace Halda {
         }
 
         public void Cut(Node x) {
+            int iter = 0;
             while (true) {
+                iter++;
+                Debug.Assert(x.Parent != null);
                 var o = x.Parent;
 
-                x.Parent = null;
-                if (o.Children == x) {
-                    o.Children = x.Remove();
-                } else {
-                    x.Remove();
-                }
+                x.Remove();
 
                 x.Marked = false;
 
                 _trees.Merge(x);
 
                 if (o.Marked) {
-                    // TODO: fuj rekurze
                     x = o;
-                } else if (!o.IsRoot) {
-                    o.Marked = true;
+                } else if (o.IsRoot) {
                     break;
                 } else {
+                    o.Marked = true;
                     break;
                 }
             }
@@ -348,8 +370,8 @@ namespace Halda {
 
             while ((line = str.ReadLine()) != null) {
                 cmdCount++;
-                heap.PrintDotgraph($"#{cmdCount} Before command {line}");
-                Console.WriteLine(line);
+                heap.PrintDotgraph($"#{cmdCount} Before command {line} ... min {heap.Min()?.Key}");
+                Console.WriteLine($"{cmdCount} {line}");
 
                 switch (line[0]) {
                     case '#':
@@ -362,7 +384,10 @@ namespace Halda {
 
                         Debug.Assert(nums.Length == 2);
 
-                        idmap[int.Parse(nums[0])] = heap.Insert(int.Parse(nums[1]));
+                        int E = int.Parse(nums[0]);
+                        int K = int.Parse(nums[1]);
+
+                        idmap[E] = heap.Insert(K, E);
 
                         break;
                     }
@@ -384,7 +409,7 @@ namespace Halda {
                     }
                 }
 
-                heap.PrintDotgraph($"#{cmdCount} After command {line}");
+                heap.PrintDotgraph($"#{cmdCount} After command {line} ... min {heap.Min()?.Key}");
             }
 
             //var heap = new FibHeap();
