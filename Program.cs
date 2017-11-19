@@ -1,6 +1,6 @@
 ﻿//#define CHECK_PARSER
 
-#define CONSOLE
+//#define CONSOLE
 //#define PRINT_GRAPH
 
 using System;
@@ -9,6 +9,92 @@ using System.Diagnostics;
 using System.IO;
 
 namespace Halda {
+    public class StreamParser {
+        private const int BufSize = 16536;
+        private readonly TextReader _reader;
+        private char[] _buffer = new char[BufSize];
+        private int _cursor = 0;
+        private int _length = 0;
+
+        public bool AllRead => _length == 0;
+
+        public enum CommandType {
+            NewTest,
+            Ins,
+            Del,
+            Dec
+        }
+
+        public StreamParser(TextReader reader) {
+            _reader = reader;
+            EnsureBuffer();
+        }
+
+        public int Number() {
+            int result = 0;
+            while (true) {
+                char c = Char();
+
+                if (c >= '0' && c <= '9') {
+                    result = result * 10 + (int) (c - '0');
+                } else {
+                    break;
+                }
+            }
+
+            return result;
+        }
+
+        private bool IsWhitespace(char c) {
+            return c == ' ' || c == '\n' || c == '\r';
+        }
+
+        public CommandType Command() {
+            char first;
+
+            while (IsWhitespace(first = Char())) { }
+
+            if (first == '#') {
+                // eat whitespace
+                Char();
+                return CommandType.NewTest;
+            }
+
+            Char();
+            char third = Char();
+            // eat whitespace
+            Char();
+
+            switch (third) {
+                case 'L': return CommandType.Del;
+                case 'C': return CommandType.Dec;
+                case 'S': return CommandType.Ins;
+                default:
+                    throw new InvalidOperationException($"third: '{third}'");
+            }
+        }
+
+        private char Char() {
+            if (EnsureBuffer()) {
+                return _buffer[_cursor++];
+            } else {
+                return '!';
+            }
+        }
+
+        public bool EnsureBuffer() {
+            if (_cursor > _length)
+                throw new InvalidOperationException("Something went terribly wrong, cursor is outside of the buffer.");
+
+            if (_cursor == _length) {
+                _length = _reader.ReadBlock(_buffer, 0, BufSize);
+                _cursor = 0;
+            }
+
+            return _length > 0;
+        }
+    }
+
     [DebuggerDisplay("{Key}[{Identifier}]")]
     public class Node {
         public int Key;
@@ -350,7 +436,6 @@ namespace Halda {
             while (true) {
                 iter++;
 
-
                 if (x.IsRoot) {
                     Console.WriteLine(_count);
                     Debugger.Break();
@@ -397,13 +482,14 @@ namespace Halda {
             FibHeap heap = null;
             Node[] idmap = null;
 
-            //var str = Console.In;
-            var str = new StreamReader("test.txt");
+
+            TextReader str;
             int cmdCount = 0;
 
             long sum = 0, count = 0;
 
 #if CONSOLE
+            str = Console.In;
             if (args.Length != 2) {
                 Console.WriteLine("Output file name and heap type is required.");
                 return;
@@ -416,6 +502,7 @@ namespace Halda {
             string outfile = args[1];
             bool isNaive = args[0][0] == 'n';
 #else
+            str = new StreamReader("test-b.txt");
             string outfile = "vs-out.txt";
             bool isNaive = false;
 #endif
@@ -423,34 +510,28 @@ namespace Halda {
 
             int currentSize = 0;
 
+            var reader = new StreamParser(str);
+
             using (var outGraph = new StreamWriter(outfile)) {
-                while ((line = str.ReadLine()) != null) {
+                while (!reader.AllRead) {
                     cmdCount++;
 #if PRINT_GRAPH
                     heap.PrintDotgraph($"#{cmdCount} Before command {line} ... min {heap.Min()?.Key}");
 #endif
 
                     if (cmdCount % 100000 == 0) {
-                        Console.WriteLine($"{cmdCount} {line}");
+                        Console.WriteLine($"{cmdCount}");
                     }
 
-                    switch (line[0]) {
-                        case '#':
+                    switch (reader.Command()) {
+                        case StreamParser.CommandType.NewTest:
                             if (count > 0) {
                                 outGraph.WriteLine($"{currentSize};{(float) sum / count}");
                             }
 
                             heap = new FibHeap(isNaive);
 
-                            int num = 0;
-                            for (int i = 2; i < line.Length; i++) {
-                                num = num * 10 + (line[i] - '0');
-                            }
-
-#if CHECK_PARSER
-                            int checkNum = int.Parse(line.Substring(2));
-                            Debug.Assert(num == checkNum);
-#endif
+                            int num = reader.Number();
 
                             currentSize = num;
                             idmap = new Node[num];
@@ -460,86 +541,39 @@ namespace Halda {
                             count = 0;
                             break;
 
-                        case 'I': {
-                            int index = 4;
-
-                            int E = 0;
-                            int K = 0;
-
-                            for (; line[index] != ' '; index++) {
-                                E = E * 10 + (line[index] - '0');
-                            }
-
-                            index++;
-
-                            for (; index < line.Length; index++) {
-                                K = K * 10 + (line[index] - '0');
-                            }
-
-#if CHECK_PARSER
-                                var nums = line.Substring(4).Split(' ');
-                            Debug.Assert(nums.Length == 2);
-
-                            int checkE = int.Parse(nums[0]);
-                            int checkK = int.Parse(nums[1]);
-
-                            Debug.Assert(E == checkE);
-                            Debug.Assert(K == checkK);                        
-#endif
+                        case StreamParser.CommandType.Ins: {
+                            int E = reader.Number();
+                            int K = reader.Number();
 
                             idmap[E] = heap.Insert(K, E);
 
                             break;
                         }
 
-                        case 'D': {
-                            if (line[2] == 'L') {
-                                var min = heap.Min();
-                                var res = heap.ExtractMin();
+                        case StreamParser.CommandType.Del: {
+                            var min = heap.Min();
+                            var res = heap.ExtractMin();
 
-                                idmap[min.Identifier] = null;
+                            idmap[min.Identifier] = null;
 
-                                count++;
-                                sum += res;
-                            } else if (line[2] == 'C') {
-                                int index = 4;
-
-                                int E = 0;
-                                int val = 0;
-
-                                for (; line[index] != ' '; index++) {
-                                    E = E * 10 + (line[index] - '0');
-                                }
-
-                                index++;
-
-                                for (; index < line.Length; index++) {
-                                    val = val * 10 + (line[index] - '0');
-                                }
-
-#if CHECK_PARSER
-                                    var nums = line.Substring(4).Split(' ');
-
-                                Debug.Assert(nums.Length == 2);
-                                int checkE = int.Parse(nums[0]);
-                                int checkVal = int.Parse(nums[1]);
-
-                                Debug.Assert(E == checkE);
-                                Debug.Assert(val == checkVal);
-#endif
-
-                                if (idmap[E] != null) {
-                                    heap.Decrease(idmap[E], val);
-                                }
+                            count++;
+                            sum += res;
+                            break;
+                        }
+                        case StreamParser.CommandType.Dec: {
+                            int E = reader.Number();
+                            int val = reader.Number();
+                            if (idmap[E] != null) {
+                                heap.Decrease(idmap[E], val);
                             }
                             break;
                         }
                     }
+                }
 
 #if PRINT_GRAPH
                     heap.PrintDotgraph($"#{cmdCount} After command {line} ... min {heap.Min()?.Key}");
 #endif
-                }
             }
         }
     }
