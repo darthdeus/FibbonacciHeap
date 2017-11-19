@@ -1,4 +1,4 @@
-﻿#define SKIP_PRINT
+﻿//#define PRINT_GRAPH
 
 using System;
 using System.Collections.Generic;
@@ -6,10 +6,10 @@ using System.Diagnostics;
 using System.IO;
 
 namespace Halda {
-    [DebuggerDisplay("{Key}[{Value}]")]
+    [DebuggerDisplay("{Key}[{Identifier}]")]
     public class Node {
         public int Key;
-        public int Value;
+        public int Identifier;
         public int Rank = 0;
         public bool Marked = false;
         public bool IsRoot => Parent == null;
@@ -20,13 +20,13 @@ namespace Halda {
         public Node Left;
 
         public bool IsSingletonList => Left == this && Right == this;
-        public string DebugString => $"{Key}[{Value}]";
+        public string DebugString => $"{Key}[{Identifier}]";
 
-        public Node(int key, int value) {
+        public Node(int key, int identifier) {
             Key = key;
             Left = this;
             Right = this;
-            Value = value;
+            Identifier = identifier;
         }
 
         public void Merge(Node other) {
@@ -123,13 +123,10 @@ namespace Halda {
             return retval;
         }
 
-        private static int count = 0;
+        public static int PrintCount = 0;
 
-        public void PrintDotgraph(string label) {
-#if SKIP_PRINT
-            return;
-#endif
-            using (var file = new StreamWriter($"graph{count}.dot")) {
+        public void ForcePrintDotgraph(string label) {
+            using (var file = new StreamWriter($"graph{PrintCount}.dot")) {
                 file.WriteLine("digraph G {");
                 file.WriteLine($"label=\"{label}\"");
 
@@ -141,8 +138,8 @@ namespace Halda {
                 while (stack.Count > 0) {
                     var node = stack.Pop();
 
-                    if (visited.Contains(node.Value)) continue;
-                    visited.Add(node.Value);
+                    if (visited.Contains(node.Identifier)) continue;
+                    visited.Add(node.Identifier);
 
                     string color = node.IsRoot ? "lightblue" : "pink";
 
@@ -171,18 +168,30 @@ namespace Halda {
                 file.WriteLine("}");
             }
 
-            Process.Start("dot", $"-Tpng -o graph{count}.png graph{count}.dot");
-            count++;
+            Process.Start("dot", $"-Tpng -o graph{PrintCount}.png graph{PrintCount}.dot");
+            PrintCount++;
+        }
+
+        public void PrintDotgraph(string label) {
+#if PRINT_GRAPH
+            ForcePrintDotgraph(label);
+#endif
         }
     }
 
     class FibHeap {
+        public long Kroky = 0;
         private Node _trees;
         private Node _minNode = null;
         private int _count = 0;
+        private bool _isNaive;
 
-        public Node Insert(int key, int value) {
-            var node = new Node(key, value);
+        public FibHeap(bool isNaive) {
+            _isNaive = isNaive;
+        }
+
+        public Node Insert(int key, int identifier) {
+            var node = new Node(key, identifier);
             InsertNode(node);
             return node;
         }
@@ -222,42 +231,48 @@ namespace Halda {
             return _minNode;
         }
 
-        public int ExtractMin() {
+        public long ExtractMin() {
+            Kroky = 0;
+
             var min = Min();
             int retval = min.Key;
             _count--;
 
             _trees = min.Remove();
 
-            int iter = 0;
+            if (_trees == null) {
+                _minNode = null;
+            }
+
+            long iter = 0;
             while (min.Children != null) {
+#if SKIP_PRINT
                 PrintDotgraph($"Extract min {iter++}");
+#endif
 
                 var child = min.Children;
                 min.Children = child.Remove();
 
+                Kroky++;
                 InsertNode(child);
             }
 
-            //do {
-            //    if (child == null) break;
-
-            //    Debug.Assert(child != null);
-            //    child.Parent = null;
-            //    child.Remove();
-
-            //    InsertNode(child);
-            //    child = child.Right;
-            //} while (child != first);
-
-            PrintDotgraph($"Before consolidate");
+            PrintDotgraph("Before consolidate");
             Consolidate();
-            PrintDotgraph($"After consolidate");
+            PrintDotgraph("After consolidate");
 
-            return retval;
+            // Pro jednoduchost vracime pocet kroku ExtractMin, misto vysledneho minima
+            // to by slo ziskat pomoci `retval`.
+            return Kroky;
         }
 
         public void Decrease(Node node, int key) {
+            if (node.Key < key) return;
+
+            //if (key == 57698) {
+            //    Debugger.Break();
+            //}
+            //int origValue = node.Key;
             node.Key = key;
 
             if (_minNode != null && _minNode.Key > node.Key) {
@@ -266,12 +281,15 @@ namespace Halda {
 
             if (node.Parent == null || node.Parent.Key < node.Key) return;
 
-
             Cut(node);
         }
 
         public void Consolidate() {
-            var buckets = new Node[(int) Math.Round(Math.Log(_count)) + 10];
+            if (_trees == null) {
+                return;
+            }
+
+            var buckets = new Node[32];
 
             // TODO: extract min
 
@@ -300,6 +318,7 @@ namespace Halda {
                         Debug.Assert(item1.Rank == item2.Rank);
                         //Console.WriteLine($"First: {item1.Rank}, Second: {item2.Rank}");
 
+                        Kroky++;
                         var bigger = item1.MergeBinomTres(item2);
                         Debug.Assert(bigger.Rank == i + 1);
 
@@ -326,10 +345,19 @@ namespace Halda {
         }
 
         public void Cut(Node x) {
+            Debug.Assert(x.Parent != null);
             int iter = 0;
+
             while (true) {
                 iter++;
-                Debug.Assert(x.Parent != null);
+
+
+                if (x.IsRoot) {
+                    Console.WriteLine(_count);
+                    Debugger.Break();
+                }
+
+                Debug.Assert(!x.IsRoot);
                 var o = x.Parent;
 
                 x.Remove();
@@ -338,12 +366,19 @@ namespace Halda {
 
                 _trees.Merge(x);
 
+                if (o.IsRoot && o.Marked) {
+                    o.Marked = false;
+                }
+
                 if (o.Marked) {
                     x = o;
                 } else if (o.IsRoot) {
                     break;
                 } else {
-                    o.Marked = true;
+                    if (!_isNaive) {
+                        o.Marked = true;
+                    }
+
                     break;
                 }
             }
@@ -360,100 +395,98 @@ namespace Halda {
         static void Main(string[] args) {
             string line;
 
-            var heap = new FibHeap();
-
+            FibHeap heap = null;
             Node[] idmap = null;
 
             //var str = Console.In;
             var str = new StreamReader("test.txt");
             int cmdCount = 0;
 
-            while ((line = str.ReadLine()) != null) {
-                cmdCount++;
-                heap.PrintDotgraph($"#{cmdCount} Before command {line} ... min {heap.Min()?.Key}");
-                Console.WriteLine($"{cmdCount} {line}");
+            long sum = 0, count = 0;
 
-                switch (line[0]) {
-                    case '#':
-                        heap = new FibHeap();
-                        idmap = new Node[int.Parse(line.Substring(2))];
-                        break;
+#if CONSOLE
+            if (args.Length != 2) {
+                Console.WriteLine("Output file name and heap type is required.");
+                return;
+            }
 
-                    case 'I': {
-                        var nums = line.Substring(4).Split(' ');
+            if (args[0].Length != 1) {
+                Console.WriteLine("Heap type can only be 's' or 'n'");
+            }
 
-                        Debug.Assert(nums.Length == 2);
+            string outfile = args[1];
+            bool isNaive = args[0][0] == 'n';
+#else
+            string outfile = "vs-out.txt";
+            bool isNaive = false;
+#endif
+            Console.WriteLine($"Running naive = {isNaive}");
 
-                        int E = int.Parse(nums[0]);
-                        int K = int.Parse(nums[1]);
+            using (var outGraph = new StreamWriter(outfile)) {
+                while ((line = str.ReadLine()) != null) {
+                    cmdCount++;
+#if PRINT_GRAPH
+                    heap.PrintDotgraph($"#{cmdCount} Before command {line} ... min {heap.Min()?.Key}");
+#endif
 
-                        idmap[E] = heap.Insert(K, E);
-
-                        break;
+                    if (cmdCount % 100000 == 0) {
+                        Console.WriteLine($"{cmdCount} {line}");
                     }
 
-                    case 'D': {
-                        if (line[2] == 'L') {
-                            heap.ExtractMin();
-                        } else if (line[2] == 'C') {
+                    switch (line[0]) {
+                        case '#':
+                            heap = new FibHeap(isNaive);
+                            idmap = new Node[int.Parse(line.Substring(2))];
+
+                            if (count > 0) {
+                                outGraph.WriteLine((float) sum / count);
+                            }
+
+                            sum = 0;
+                            count = 0;
+                            break;
+
+                        case 'I': {
                             var nums = line.Substring(4).Split(' ');
 
                             Debug.Assert(nums.Length == 2);
-                            var index = int.Parse(nums[0]);
 
-                            if (idmap[index] != null) {
-                                heap.Decrease(idmap[index], int.Parse(nums[1]));
-                            }
+                            int E = int.Parse(nums[0]);
+                            int K = int.Parse(nums[1]);
+
+                            idmap[E] = heap.Insert(K, E);
+
+                            break;
                         }
-                        break;
+
+                        case 'D': {
+                            if (line[2] == 'L') {
+                                var min = heap.Min();
+                                var res = heap.ExtractMin();
+
+                                idmap[min.Identifier] = null;
+
+                                count++;
+                                sum += res;
+                            } else if (line[2] == 'C') {
+                                var nums = line.Substring(4).Split(' ');
+
+                                Debug.Assert(nums.Length == 2);
+                                var index = int.Parse(nums[0]);
+
+                                if (idmap[index] != null) {
+                                    heap.Decrease(idmap[index], int.Parse(nums[1]));
+                                }
+                            }
+                            break;
+                        }
                     }
+
+#if PRINT_GRAPH
+                    heap.PrintDotgraph($"#{cmdCount} After command {line} ... min {heap.Min()?.Key}");
+#endif
                 }
-
-                heap.PrintDotgraph($"#{cmdCount} After command {line} ... min {heap.Min()?.Key}");
             }
-
-            //var heap = new FibHeap();
-
-            //heap.Insert(1);
-            //heap.Insert(2);
-            //heap.Insert(3);
-            //heap.Insert(4);
-            //heap.Insert(5);
-
-            //heap.Consolidate();
-
-            //heap.PrintDotgraph();
         }
-
-        //static void Test1() {
-        //    var n1 = new Node(2);
-        //    n1.Merge(new Node(3));
-        //    n1.Merge(new Node(4));
-        //    n1.Merge(new Node(5));
-        //    n1.Merge(new Node(6));
-
-        //    n1.PrintDotgraph();
-
-        //    n1.Remove().PrintDotgraph();
-        //    n1.PrintDotgraph();
-        //}
-
-        //static void Test2() {
-        //    var n1 = new Node(2);
-        //    n1.Merge(new Node(3));
-        //    n1.Merge(new Node(4));
-        //    n1.PrintDotgraph();
-
-        //    var n2 = new Node(5);
-        //    n2.Merge(new Node(6));
-        //    n2.PrintDotgraph();
-
-        //    n1.Merge(n2);
-
-        //    n1.PrintDotgraph();
-
-        //    n1.Remove().PrintDotgraph();
-        //    n1.PrintDotgraph();
-        //}
     }
 }
