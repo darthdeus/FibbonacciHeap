@@ -1,6 +1,6 @@
 ﻿//#define CHECK_PARSER
 
-//#define CONSOLE
+#define CONSOLE
 //#define PRINT_GRAPH
 
 using System;
@@ -10,7 +10,7 @@ using System.IO;
 
 namespace Halda {
     public class StreamParser {
-        private const int BufSize = 16536;
+        private const int BufSize = 65535;
         private readonly TextReader _reader;
         private char[] _buffer = new char[BufSize];
         private int _cursor = 0;
@@ -508,7 +508,7 @@ namespace Halda {
 #endif
             Console.WriteLine($"Running naive = {isNaive}");
 
-            int currentSize = 0;
+            long currentSize = 0;
 
             var reader = new StreamParser(str);
 
@@ -523,7 +523,14 @@ namespace Halda {
                         Console.WriteLine($"{cmdCount}");
                     }
 
-                    switch (reader.Command()) {
+                    StreamParser.CommandType cmd;
+                    try {
+                        cmd = reader.Command();
+                    } catch (InvalidOperationException e) {
+                        break;
+                    }
+
+                    switch (cmd) {
                         case StreamParser.CommandType.NewTest:
                             if (count > 0) {
                                 outGraph.WriteLine($"{currentSize};{(float) sum / count}");
