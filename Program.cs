@@ -1,4 +1,6 @@
-﻿//#define PRINT_GRAPH
+﻿//#define CHECK_PARSER
+#define CONSOLE
+//#define PRINT_GRAPH
 
 using System;
 using System.Collections.Generic;
@@ -436,7 +438,17 @@ namespace Halda {
                     switch (line[0]) {
                         case '#':
                             heap = new FibHeap(isNaive);
-                            idmap = new Node[int.Parse(line.Substring(2))];
+
+                            int num = 0;
+                            for (int i = 2; i < line.Length; i++) {
+                                num = num * 10 + (line[i] - '0');
+                            }
+
+#if CHECK_PARSER
+                            int checkNum = int.Parse(line.Substring(2));
+                            Debug.Assert(num == checkNum);
+#endif
+                            idmap = new Node[num];
 
                             if (count > 0) {
                                 outGraph.WriteLine((float) sum / count);
@@ -447,12 +459,31 @@ namespace Halda {
                             break;
 
                         case 'I': {
-                            var nums = line.Substring(4).Split(' ');
+                            int index = 4;
 
+                            int E = 0;
+                            int K = 0;
+
+                            for (; line[index] != ' '; index++) {
+                                E = E * 10 + (line[index] - '0');
+                            }
+
+                            index++;
+
+                            for (; index < line.Length; index++) {
+                                K = K * 10 + (line[index] - '0');
+                            }
+
+#if CHECK_PARSER
+                                var nums = line.Substring(4).Split(' ');
                             Debug.Assert(nums.Length == 2);
 
-                            int E = int.Parse(nums[0]);
-                            int K = int.Parse(nums[1]);
+                            int checkE = int.Parse(nums[0]);
+                            int checkK = int.Parse(nums[1]);
+
+                            Debug.Assert(E == checkE);
+                            Debug.Assert(K == checkK);                        
+#endif
 
                             idmap[E] = heap.Insert(K, E);
 
@@ -469,13 +500,34 @@ namespace Halda {
                                 count++;
                                 sum += res;
                             } else if (line[2] == 'C') {
-                                var nums = line.Substring(4).Split(' ');
+                                int index = 4;
+
+                                int E = 0;
+                                int val = 0;
+
+                                for (; line[index] != ' '; index++) {
+                                    E = E * 10 + (line[index] - '0');
+                                }
+
+                                index++;
+
+                                for (; index < line.Length; index++) {
+                                    val = val * 10 + (line[index] - '0');
+                                }
+
+#if CHECK_PARSER
+                                    var nums = line.Substring(4).Split(' ');
 
                                 Debug.Assert(nums.Length == 2);
-                                var index = int.Parse(nums[0]);
+                                int checkE = int.Parse(nums[0]);
+                                int checkVal = int.Parse(nums[1]);
 
-                                if (idmap[index] != null) {
-                                    heap.Decrease(idmap[index], int.Parse(nums[1]));
+                                Debug.Assert(E == checkE);
+                                Debug.Assert(val == checkVal);
+#endif
+
+                                if (idmap[E] != null) {
+                                    heap.Decrease(idmap[E], val);
                                 }
                             }
                             break;
