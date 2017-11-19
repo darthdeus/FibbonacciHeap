@@ -10,13 +10,13 @@ using System.IO;
 
 namespace Halda {
     public class StreamParser {
-        private const int BufSize = 65535;
+        private const int BufSize = 2 << 15;
         private readonly TextReader _reader;
-        private char[] _buffer = new char[BufSize];
+        private readonly char[] _buffer = new char[BufSize];
         private int _cursor = 0;
         private int _length = 0;
 
-        public bool AllRead => _length == 0;
+        public bool NotFinished => EnsureBuffer();
 
         public enum CommandType {
             NewTest,
@@ -31,60 +31,58 @@ namespace Halda {
         }
 
         public int Number() {
-            int result = 0;
-            while (true) {
-                char c = Char();
+            char c = ' ';
+            while (IsWhitespace(c = Char())) {
+            }
 
-                if (c >= '0' && c <= '9') {
-                    result = result * 10 + (int) (c - '0');
-                } else {
-                    break;
-                }
+            int result = (c - '0');
+
+            if (_length == _cursor)
+                EnsureBuffer();
+
+            while (_buffer[_cursor] >= '0' && _buffer[_cursor] <= '9') {
+                c = Char();
+
+                result = result * 10 + (c - '0');
+
+                if (_length == _cursor)
+                    EnsureBuffer();
             }
 
             return result;
         }
 
-        private bool IsWhitespace(char c) {
-            return c == ' ' || c == '\n' || c == '\r';
-        }
+        private static bool IsWhitespace(char c)
+            => c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '\0';
 
         public CommandType Command() {
-            char first;
-
-            while (IsWhitespace(first = Char())) { }
-
+            char first = Char();
             if (first == '#') {
-                // eat whitespace
-                Char();
                 return CommandType.NewTest;
             }
-
             Char();
             char third = Char();
-            // eat whitespace
-            Char();
 
             switch (third) {
                 case 'L': return CommandType.Del;
                 case 'C': return CommandType.Dec;
                 case 'S': return CommandType.Ins;
                 default:
-                    throw new InvalidOperationException($"third: '{third}'");
+                    throw new InvalidOperationException($"'{third}'");
             }
         }
 
-        private char Char() {
-            if (EnsureBuffer()) {
-                return _buffer[_cursor++];
-            } else {
-                return '!';
-            }
+        public char Char() {
+            return EnsureBuffer() ? _buffer[_cursor++] : ' ';
         }
 
         public bool EnsureBuffer() {
+            while (_cursor < _length && IsWhitespace(_buffer[_cursor]))
+                _cursor++;
+
             if (_cursor > _length)
-                throw new InvalidOperationException("Something went terribly wrong, cursor is outside of the buffer.");
+                throw new InvalidOperationException(
+                    "Something went terribly wrong, cursor is outside of the buffer.");
 
             if (_cursor == _length) {
                 _length = _reader.ReadBlock(_buffer, 0, BufSize);
@@ -513,7 +511,7 @@ namespace Halda {
             var reader = new StreamParser(str);
 
             using (var outGraph = new StreamWriter(outfile)) {
-                while (!reader.AllRead) {
+                while (reader.NotFinished) {
                     cmdCount++;
 #if PRINT_GRAPH
                     heap.PrintDotgraph($"#{cmdCount} Before command {line} ... min {heap.Min()?.Key}");
@@ -523,14 +521,7 @@ namespace Halda {
                         Console.WriteLine($"{cmdCount}");
                     }
 
-                    StreamParser.CommandType cmd;
-                    try {
-                        cmd = reader.Command();
-                    } catch (InvalidOperationException e) {
-                        break;
-                    }
-
-                    switch (cmd) {
+                    switch (reader.Command()) {
                         case StreamParser.CommandType.NewTest:
                             if (count > 0) {
                                 outGraph.WriteLine($"{currentSize};{(float) sum / count}");
