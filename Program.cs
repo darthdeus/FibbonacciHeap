@@ -1,4 +1,5 @@
 ﻿//#define CHECK_PARSER
+
 #define CONSOLE
 //#define PRINT_GRAPH
 
@@ -271,10 +272,6 @@ namespace Halda {
         public void Decrease(Node node, int key) {
             if (node.Key < key) return;
 
-            //if (key == 57698) {
-            //    Debugger.Break();
-            //}
-            //int origValue = node.Key;
             node.Key = key;
 
             if (_minNode != null && _minNode.Key > node.Key) {
@@ -424,6 +421,8 @@ namespace Halda {
 #endif
             Console.WriteLine($"Running naive = {isNaive}");
 
+            int currentSize = 0;
+
             using (var outGraph = new StreamWriter(outfile)) {
                 while ((line = str.ReadLine()) != null) {
                     cmdCount++;
@@ -437,6 +436,10 @@ namespace Halda {
 
                     switch (line[0]) {
                         case '#':
+                            if (count > 0) {
+                                outGraph.WriteLine($"{currentSize};{(float) sum / count}");
+                            }
+
                             heap = new FibHeap(isNaive);
 
                             int num = 0;
@@ -448,11 +451,10 @@ namespace Halda {
                             int checkNum = int.Parse(line.Substring(2));
                             Debug.Assert(num == checkNum);
 #endif
+
+                            currentSize = num;
                             idmap = new Node[num];
 
-                            if (count > 0) {
-                                outGraph.WriteLine((float) sum / count);
-                            }
 
                             sum = 0;
                             count = 0;
